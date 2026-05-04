@@ -2,8 +2,12 @@ name: Update PROXYIP List
 
 on:
   schedule:
-    - cron: '0 */4 * * *' # 每4小时
-  workflow_dispatch:  # 也支持手动触发
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+
+# ⭐ 关键：加这个
+permissions:
+  contents: write
 
 jobs:
   update-ip-list:
@@ -24,11 +28,9 @@ jobs:
         pip install requests beautifulsoup4
 
     - name: Run script
-      run: python ${{ github.workspace }}/collect_proxyip.py
+      run: python collect_proxyip.py
 
     - name: Commit and push changes
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         set -e
         git config --global user.email "actions@github.com"
@@ -39,7 +41,7 @@ jobs:
           echo "Changes detected, committing..."
           git add proxyip.txt
           git commit -m "Automatic update"
-          git push origin HEAD:${{ github.ref }}
+          git push
         else
           echo "No changes detected, skipping commit."
         fi
