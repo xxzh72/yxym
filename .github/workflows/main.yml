@@ -3,7 +3,7 @@ name: Update Cloudflare DNS
 on:
   schedule:
     - cron: '*/30 * * * *'  # 每隔三十分钟运行一次
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:      # 允许手动触发
 
 jobs:
   update-dns:
@@ -24,12 +24,14 @@ jobs:
         pip install requests
 
     - name: Run update script
-      # *** 核心修改部分 ***
+      env:
+        # 将 Secret 映射为环境变量，增加安全性
+        RAW_CF_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        TARGET_DOMAINS: ${{ secrets.MY_DOMAINS }}
       run: |
-        # 1. 清理 Secret 中的任何换行符或回车符。
-        #    这是解决 "Invalid leading whitespace, reserved character(s), or return character(s)" 错误的关键。
-        CLEAN_TOKEN=$(echo "${{ secrets.CF_API_TOKEN }}" | tr -d '\r\n')
+        # 1. 清理 Token 中的换行符或回车符（防止从网页复制时带入不可见字符）
+        CLEAN_TOKEN=$(echo "$RAW_CF_TOKEN" | tr -d '\r\n')
         
-        # 2. 将清理后的 Token 作为环境变量传递给 Python 脚本，并执行
-        CF_API_TOKEN="${CLEAN_TOKEN}" python bestdomain.py --domains 38806827.xyz
-      # *** 修改结束 ***
+        # 2. 执行 Python 脚本
+        # 使用环境变量中的域名，彻底不在代码硬编码
+        CF_API_TOKEN="${CLEAN_TOKEN}" python bestdomain.py --domains "${TARGET_DOMAINS}"
