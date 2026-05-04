@@ -141,8 +141,8 @@ def main():
 
     subdomain_ip_mapping = {
         'cf': 'https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt',
-        'best': 'https://raw.githubusercontent.com/chris202010/yxym/refs/heads/main/ip.txt',
-        'proxyip': 'https://raw.githubusercontent.com/chris202010/yxym/refs/heads/main/proxyip.txt',
+        'best': 'https://raw.githubusercontent.com/xxzh72/yxym/refs/heads/main/ip.txt',
+        'proxyip': 'https://raw.githubusercontent.com/xxzh72/yxym/refs/heads/main/proxyip.txt',
     }
 
     # 注意：这里的输出现在更准确了，'proxied' 是指 DNS 记录的云朵状态。
