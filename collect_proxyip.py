@@ -1,15 +1,13 @@
 import socket
 import os
 import logging
-from time import sleep
-# 引入用于网络请求的库
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib.request
 import urllib.error
 
-# 设置日志记录
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# 目标域名列表 (原始数据)
 domains = [
     'proxy.xinyitang.dpdns.org',
     'proxyip.fxxk.dedyn.io',
@@ -21,68 +19,133 @@ domains = [
     'proxyip.oracle.fxxk.dedyn.io',
     'proxyip.digitalocean.fxxk.dedyn.io',
     'ProxyIP.CMLiussss.net',
-    'proxyip.oracle.cmliussss.net'
-    # 你可以添加更多域名
+    'proxyip.oracle.cmliussss.net',
 ]
 
-# 远程 IP 列表 URL
 remote_url = "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/bestproxy.txt"
 
-# 检查 proxyip.txt 文件是否存在，如果存在则删除它
-if os.path.exists('proxyip.txt'):
-    os.remove('proxyip.txt')
+OUTPUT_FILE = "proxyip.txt"
 
-logging.info("--- 开始进行域名解析 ---")
+# 多端口支持（关键）
+PORTS = [80, 443, 8080, 3128]
 
-# 创建一个文件来存储解析得到的 IP 地址
-with open('proxyip.txt', 'a', encoding='utf-8') as file:
-    # 1. 解析硬编码的域名列表
-    for domain in domains:
-        try:
-            # 使用 socket 获取 IP 地址
-            ip_address = socket.gethostbyname(domain)
+TEST_URL = "https://httpbin.org/ip"
 
-            # 只写入 IP，不带国家代码
-            file.write(f"{ip_address}\n")
-            logging.info(f"域名解析: {domain} -> {ip_address}")
+MAX_THREADS = 50
+TIMEOUT = 3
 
-        except socket.gaierror as e:
-            logging.error(f"无法解析域名 {domain}: {e}")
-            continue
 
-        # 防止查询太快（可选）
-        sleep(1)
-
-    logging.info("--- 域名列表解析完成 ---")
-    logging.info(f"--- 开始采集远程 URL 数据: {remote_url} ---")
-
-    # 2. 从远程 URL 获取数据并写入文件
+# =========================
+# 获取域名所有 IP
+# =========================
+def resolve_all_ips(domain):
+    ips = set()
     try:
-        # 使用 urllib.request.urlopen 打开 URL
-        with urllib.request.urlopen(remote_url, timeout=10) as response:
-            # 读取所有内容并按行分割
-            remote_data = response.read().decode('utf-8')
-            ip_lines = remote_data.strip().split('\n')
-
-            logging.info(f"成功获取到 {len(ip_lines)} 条远程数据。")
-
-            # 遍历每一行数据
-            for line in ip_lines:
-                # 假设 remote_url 中的文件每行就是一个 IP 地址或 IP:PORT
-                # 我们只取 IP 地址部分（如果存在端口）
-                ip_only = line.split(':')[0].strip()
-
-                if ip_only: # 确保不是空行
-                    # 简单验证是否是有效的 IP 地址 (可选，这里只简单写入)
-                    # 为了和原始代码保持一致，这里直接写入。
-                    file.write(f"{ip_only}\n")
-                    logging.debug(f"远程 IP: {ip_only}") # 使用 debug 级别避免日志过多
-                
-    except urllib.error.URLError as e:
-        logging.error(f"无法从远程 URL 获取数据 {remote_url}: {e.reason}")
+        infos = socket.getaddrinfo(domain, None)
+        for item in infos:
+            ip = item[4][0]
+            ips.add(ip)
     except Exception as e:
-        logging.error(f"处理远程数据时发生未知错误: {e}")
+        logging.error(f"{domain} 解析失败: {e}")
+    return ips
 
-    logging.info("--- 远程数据采集完成 ---")
 
-logging.info("✅ 域名解析和远程数据采集完成，所有 IP 已保存到 proxyip.txt（仅 IP）。")
+# =========================
+# 测试代理 + 测速
+# =========================
+def test_proxy(ip, port):
+    proxy = f"http://{ip}:{port}"
+
+    proxy_handler = urllib.request.ProxyHandler({
+        "http": proxy,
+        "https": proxy
+    })
+
+    opener = urllib.request.build_opener(proxy_handler)
+
+    start = time.time()
+
+    try:
+        req = urllib.request.Request(
+            TEST_URL,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+
+        with opener.open(req, timeout=TIMEOUT) as resp:
+            if resp.status == 200:
+                delay = round(time.time() - start, 2)
+                logging.info(f"✅ {ip}:{port} 延迟 {delay}s")
+                return (ip, port, delay)
+
+    except Exception:
+        return None
+
+    return None
+
+
+# =========================
+# 多端口检测
+# =========================
+def check_ip(ip):
+    results = []
+    for port in PORTS:
+        result = test_proxy(ip, port)
+        if result:
+            results.append(result)
+    return results
+
+
+# =========================
+# 主程序
+# =========================
+def main():
+    if os.path.exists(OUTPUT_FILE):
+        os.remove(OUTPUT_FILE)
+
+    all_ips = set()
+
+    # 1️⃣ 域名解析
+    logging.info("解析域名...")
+    for domain in domains:
+        ips = resolve_all_ips(domain)
+        logging.info(f"{domain} -> {len(ips)} IP")
+        all_ips.update(ips)
+
+    # 2️⃣ 远程数据
+    logging.info("获取远程 IP...")
+    try:
+        with urllib.request.urlopen(remote_url, timeout=10) as response:
+            data = response.read().decode('utf-8')
+            for line in data.splitlines():
+                ip = line.split(':')[0].strip()
+                if ip:
+                    all_ips.add(ip)
+    except Exception as e:
+        logging.error(f"远程获取失败: {e}")
+
+    logging.info(f"总 IP 数: {len(all_ips)}")
+
+    # 3️⃣ 多线程检测
+    valid_proxies = []
+
+    with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+        futures = {executor.submit(check_ip, ip): ip for ip in all_ips}
+
+        for future in as_completed(futures):
+            results = future.result()
+            if results:
+                valid_proxies.extend(results)
+
+    # 4️⃣ 按延迟排序（核心）
+    valid_proxies.sort(key=lambda x: x[2])
+
+    # 5️⃣ 写入文件
+    with open(OUTPUT_FILE, 'w') as f:
+        for ip, port, delay in valid_proxies:
+            f.write(f"{ip}:{port} # {delay}s\n")
+
+    logging.info(f"完成！有效代理数: {len(valid_proxies)}")
+
+
+if __name__ == "__main__":
+    main()
