@@ -6,8 +6,8 @@ on:
   workflow_dispatch:  # 也支持手动触发
 
 # ⭐ 关键：加这个
-  permissions:
-    contents: write
+permissions:
+  contents: write
   
 jobs:
   update-ip-list:
