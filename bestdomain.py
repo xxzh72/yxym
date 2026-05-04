@@ -126,7 +126,7 @@ def main():
         description="自动更新 Cloudflare DNS 记录（支持多域名）"
     )
     parser.add_argument("--token", required=False, help="Cloudflare API Token（也可通过环境变量 CF_API_TOKEN）")
-    parser.add_argument("--domains", required=True, help="多个域名用逗号分隔，例如：38806827.xyz,myotherdomain.com")
+    parser.add_argument("--domains", required=True, help="多个域名用逗号分隔，例如：abc.xyz,myotherdomain.com")
     parser.add_argument("--proxied", default="false", help="是否启用代理（true/false），默认 false")
 
     args = parser.parse_args()
@@ -140,8 +140,8 @@ def main():
     domains = [d.strip() for d in args.domains.split(",") if d.strip()]
 
     subdomain_ip_mapping = {
-        'bestcf': 'https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt',
-        'api': 'https://raw.githubusercontent.com/chris202010/yxym/refs/heads/main/ip.txt',
+        'cf': 'https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt',
+        'best': 'https://raw.githubusercontent.com/chris202010/yxym/refs/heads/main/ip.txt',
         'proxyip': 'https://raw.githubusercontent.com/chris202010/yxym/refs/heads/main/proxyip.txt',
     }
 
