@@ -1,4 +1,4 @@
-name: Update PROXYIP List
+name: Update CPROXYIP List
 
 on:
   schedule:
