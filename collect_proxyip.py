@@ -3,148 +3,166 @@ import os
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import urllib.request
-import urllib.error
+import requests
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 domains = [
     'proxy.xinyitang.dpdns.org',
     'proxyip.fxxk.dedyn.io',
-    'proxyip.us.fxxk.dedyn.io',
     'proxyip.sg.fxxk.dedyn.io',
-    'proxyip.jp.fxxk.dedyn.io',
-    'proxyip.hk.fxxk.dedyn.io',
-    'proxyip.aliyun.fxxk.dedyn.io',
-    'proxyip.oracle.fxxk.dedyn.io',
-    'proxyip.digitalocean.fxxk.dedyn.io',
-    'ProxyIP.CMLiussss.net',
-    'proxyip.oracle.cmliussss.net',
 ]
 
 remote_url = "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/bestproxy.txt"
 
 OUTPUT_FILE = "proxyip.txt"
 
-# 多端口支持（关键）
 PORTS = [80, 443, 8080, 3128]
 
-TEST_URL = "https://httpbin.org/ip"
+TEST_URLS = [
+    "http://httpbin.org/ip",
+    "http://ifconfig.me/ip",
+    "https://api.ipify.org"
+]
 
-MAX_THREADS = 50
-TIMEOUT = 3
+TIMEOUT = 5
+MAX_THREADS = 20
 
 
 # =========================
-# 获取域名所有 IP
+# 解析域名（全部IP）
 # =========================
 def resolve_all_ips(domain):
     ips = set()
     try:
         infos = socket.getaddrinfo(domain, None)
         for item in infos:
-            ip = item[4][0]
-            ips.add(ip)
-    except Exception as e:
-        logging.error(f"{domain} 解析失败: {e}")
+            ips.add(item[4][0])
+    except:
+        pass
     return ips
 
 
 # =========================
-# 测试代理 + 测速
+# 第一阶段（宽松检测）
 # =========================
-def test_proxy(ip, port):
+def quick_check(ip, port):
+    proxy = f"http://{ip}:{port}"
+    try:
+        r = requests.get(
+            TEST_URLS[0],
+            proxies={"http": proxy, "https": proxy},
+            timeout=TIMEOUT
+        )
+        return r.status_code == 200
+    except:
+        return False
+
+
+# =========================
+# 第二阶段（测速）
+# =========================
+def speed_test(ip, port):
     proxy = f"http://{ip}:{port}"
 
-    proxy_handler = urllib.request.ProxyHandler({
-        "http": proxy,
-        "https": proxy
-    })
-
-    opener = urllib.request.build_opener(proxy_handler)
-
-    start = time.time()
-
-    try:
-        req = urllib.request.Request(
-            TEST_URL,
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
-
-        with opener.open(req, timeout=TIMEOUT) as resp:
-            if resp.status == 200:
+    for url in TEST_URLS:
+        try:
+            start = time.time()
+            r = requests.get(url, proxies={"http": proxy, "https": proxy}, timeout=TIMEOUT)
+            if r.status_code == 200:
                 delay = round(time.time() - start, 2)
-                logging.info(f"✅ {ip}:{port} 延迟 {delay}s")
                 return (ip, port, delay)
-
-    except Exception:
-        return None
+        except:
+            continue
 
     return None
 
 
 # =========================
-# 多端口检测
-# =========================
-def check_ip(ip):
-    results = []
-    for port in PORTS:
-        result = test_proxy(ip, port)
-        if result:
-            results.append(result)
-    return results
-
-
-# =========================
-# 主程序
+# 主流程
 # =========================
 def main():
+    old_data = None
+
+    # 读取旧数据（防止覆盖）
     if os.path.exists(OUTPUT_FILE):
-        os.remove(OUTPUT_FILE)
+        with open(OUTPUT_FILE, 'r') as f:
+            old_data = f.read()
 
     all_ips = set()
 
     # 1️⃣ 域名解析
-    logging.info("解析域名...")
-    for domain in domains:
-        ips = resolve_all_ips(domain)
-        logging.info(f"{domain} -> {len(ips)} IP")
-        all_ips.update(ips)
+    for d in domains:
+        all_ips.update(resolve_all_ips(d))
 
-    # 2️⃣ 远程数据
-    logging.info("获取远程 IP...")
+    # 2️⃣ 远程IP
     try:
-        with urllib.request.urlopen(remote_url, timeout=10) as response:
-            data = response.read().decode('utf-8')
-            for line in data.splitlines():
-                ip = line.split(':')[0].strip()
-                if ip:
-                    all_ips.add(ip)
-    except Exception as e:
-        logging.error(f"远程获取失败: {e}")
+        data = requests.get(remote_url, timeout=10).text
+        for line in data.splitlines():
+            ip = line.split(':')[0].strip()
+            if ip:
+                all_ips.add(ip)
+    except:
+        pass
 
-    logging.info(f"总 IP 数: {len(all_ips)}")
+    logging.info(f"收集 IP: {len(all_ips)}")
 
-    # 3️⃣ 多线程检测
-    valid_proxies = []
+    # =========================
+    # 第一阶段：宽松筛选
+    # =========================
+    candidates = []
 
-    with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-        futures = {executor.submit(check_ip, ip): ip for ip in all_ips}
+    with ThreadPoolExecutor(MAX_THREADS) as ex:
+        futures = {ex.submit(quick_check, ip, port): (ip, port)
+                   for ip in all_ips for port in PORTS}
 
-        for future in as_completed(futures):
-            results = future.result()
-            if results:
-                valid_proxies.extend(results)
+        for f in as_completed(futures):
+            ip, port = futures[f]
+            if f.result():
+                candidates.append((ip, port))
 
-    # 4️⃣ 按延迟排序（核心）
-    valid_proxies.sort(key=lambda x: x[2])
+    logging.info(f"初筛通过: {len(candidates)}")
 
-    # 5️⃣ 写入文件
-    with open(OUTPUT_FILE, 'w') as f:
-        for ip, port, delay in valid_proxies:
-            f.write(f"{ip}:{port} # {delay}s\n")
+    # 👉 如果一个都没有 → 降级（直接用原始IP）
+    if not candidates:
+        logging.warning("初筛为空，降级使用原始IP")
+        candidates = [(ip, 80) for ip in list(all_ips)[:50]]
 
-    logging.info(f"完成！有效代理数: {len(valid_proxies)}")
+    # =========================
+    # 第二阶段：测速
+    # =========================
+    results = []
+
+    with ThreadPoolExecutor(MAX_THREADS) as ex:
+        futures = {ex.submit(speed_test, ip, port): (ip, port)
+                   for ip, port in candidates}
+
+        for f in as_completed(futures):
+            r = f.result()
+            if r:
+                results.append(r)
+
+    logging.info(f"测速成功: {len(results)}")
+
+    # 👉 如果测速也为空 → 用初筛结果
+    if not results:
+        logging.warning("测速为空，使用初筛结果")
+        results = [(ip, port, 999) for ip, port in candidates]
+
+    # 排序
+    results.sort(key=lambda x: x[2])
+
+    # 写文件
+    if results:
+        with open(OUTPUT_FILE, 'w') as f:
+            for ip, port, delay in results:
+                f.write(f"{ip}:{port} # {delay}s\n")
+        logging.info(f"更新成功: {len(results)}")
+    else:
+        logging.warning("完全失败，保留旧数据")
+        if old_data:
+            with open(OUTPUT_FILE, 'w') as f:
+                f.write(old_data)
 
 
 if __name__ == "__main__":
