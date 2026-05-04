@@ -1,10 +1,8 @@
 # github项目
 - 原github作者[ tianshipapa ](https://github.com/tianshipapa)和
 [ymyuuu](https://github.com/ymyuuu/BestDomain)
-- 老王只是合并两个项目
-- github项目地址
+- 合并两个项目
 
-https://github.com/jc-lw/youxuanyuming
 
 ![image.png](https://img.kjzl.me/images/18b0be4bca205491b1aaf70983319fe504bef426.png)
 
