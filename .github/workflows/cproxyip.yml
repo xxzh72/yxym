@@ -1,0 +1,47 @@
+name: Update PROXYIP List
+
+on:
+  schedule:
+    - cron: '0 */4 * * *' # 每4小时运行一次
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-ip-list:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+
+    - name: Run script
+      run: python cproxyip.py # 🛠️ 确保文件名与你仓库中的脚本一致
+
+    - name: Commit and push changes
+      run: |
+        set -e
+        git config --global user.email "actions@github.com"
+        git config --global user.name "GitHub Action"
+
+        echo "Checking for changes..."
+        # 🛠️ 检查所有修改过的 .txt 文件
+        if [[ -n "$(git status --porcelain *.txt)" ]]; then
+          echo "Changes detected, committing..."
+          git add sg.txt jp.txt us.txt # 🛠️ 添加所有生成的地区文件
+          git commit -m "Automatic update: SG/JP/US Proxy IPs"
+          git push
+        else
+          echo "No changes detected, skipping commit."
+        fi
