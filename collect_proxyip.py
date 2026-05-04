@@ -26,38 +26,24 @@ TEST_URLS = [
 TIMEOUT = 5
 MAX_THREADS = 20
 
-# =========================
-# 解析域名（获取所有绑定的IP）
-# =========================
 def resolve_all_ips(domain):
     ips = set()
     try:
         infos = socket.getaddrinfo(domain, None)
         for item in infos:
             ips.add(item[4][0])
-    except Exception:
+    except:
         pass
     return ips
 
-# =========================
-# 第一阶段：快速连接测试
-# =========================
 def quick_check(ip, port):
     proxy = f"http://{ip}:{port}"
     try:
-        # 仅尝试第一个测试地址
-        r = requests.get(
-            TEST_URLS[0],
-            proxies={"http": proxy, "https": proxy},
-            timeout=TIMEOUT
-        )
+        r = requests.get(TEST_URLS[0], proxies={"http": proxy, "https": proxy}, timeout=TIMEOUT)
         return r.status_code == 200
     except:
         return False
 
-# =========================
-# 第二阶段：详细测速
-# =========================
 def speed_test(ip, port):
     proxy = f"http://{ip}:{port}"
     for url in TEST_URLS:
@@ -71,9 +57,6 @@ def speed_test(ip, port):
             continue
     return None
 
-# =========================
-# 主程序
-# =========================
 def main():
     old_data = None
     if os.path.exists(OUTPUT_FILE):
@@ -81,73 +64,66 @@ def main():
             old_data = f.read()
 
     all_ips = set()
-
-    # 1. 收集域名下的 IP
     for d in domains:
         all_ips.update(resolve_all_ips(d))
 
-    # 2. 收集远程地址的 IP
     try:
-        resp = requests.get(remote_url, timeout=10)
-        if resp.status_code == 200:
-            for line in resp.text.splitlines():
-                # 处理可能带端口的格式，只取冒号前的部分
-                ip = line.split(':')[0].strip()
-                if ip:
-                    all_ips.add(ip)
-    except Exception as e:
-        logging.error(f"下载远程IP失败: {e}")
+        data = requests.get(remote_url, timeout=10).text
+        for line in data.splitlines():
+            ip = line.split(':')[0].strip()
+            if ip:
+                all_ips.add(ip)
+    except:
+        pass
 
-    logging.info(f"共收集到待检测 IP: {len(all_ips)}")
+    logging.info(f"收集 IP: {len(all_ips)}")
 
-    # 3. 第一阶段：快速筛选
     candidates = []
     with ThreadPoolExecutor(MAX_THREADS) as ex:
-        futures = {ex.submit(quick_check, ip, port): (ip, port)
-                   for ip in all_ips for port in PORTS}
+        futures = {ex.submit(quick_check, ip, port): (ip, port) for ip in all_ips for port in PORTS}
         for f in as_completed(futures):
             ip, port = futures[f]
             if f.result():
                 candidates.append((ip, port))
 
-    logging.info(f"初步筛选通过数量: {len(candidates)}")
+    logging.info(f"初筛通过: {len(candidates)}")
 
     if not candidates:
-        logging.warning("无可用候选，尝试直接使用前50个原始IP")
+        logging.warning("初筛为空，降级使用原始IP")
         candidates = [(ip, 80) for ip in list(all_ips)[:50]]
 
-    # 4. 第二阶段：精确测速
     results = []
     with ThreadPoolExecutor(MAX_THREADS) as ex:
-        futures = {ex.submit(speed_test, ip, port): (ip, port)
-                   for ip, port in candidates}
+        futures = {ex.submit(speed_test, ip, port): (ip, port) for ip, port in candidates}
         for f in as_completed(futures):
-            res = f.result()
-            if res:
-                results.append(res)
+            r = f.result()
+            if r:
+                results.append(r)
 
-    logging.info(f"最终测速成功数量: {len(results)}")
+    logging.info(f"测速成功: {len(results)}")
 
-    # 5. 排序并写入文件（只保留IP且去重）
+    # ==========================================
+    # 修改后的核心写入逻辑：只保留唯一 IP
+    # ==========================================
     if results:
-        # 按延迟从低到高排序
+        # 按延迟排序（快的在前）
         results.sort(key=lambda x: x[2])
-
-        final_unique_ips = []
-        seen = set()
         
+        final_ips = []
+        seen = set()
         for ip, port, delay in results:
             if ip not in seen:
-                final_unique_ips.append(ip)
+                final_ips.append(ip)
                 seen.add(ip)
 
         with open(OUTPUT_FILE, 'w') as f:
-            for ip in final_unique_ips:
-                f.write(f"{ip}\n")
+            for ip in final_ips:
+                f.write(f"{ip}\n")  # 👈 这里只写 IP，不写端口和备注
         
-        logging.info(f"文件更新成功！共写入 {len(final_unique_ips)} 个唯一 IP 地址")
+        logging.info(f"文件更新成功: 写入 {len(final_ips)} 个 IP")
     else:
-        logging.warning("未能检测到任何有效 IP，保留旧数据。")
+        # 如果彻底没数据，为了防止 Actions 报错，我们至少写入一条空信息或保持原样
+        logging.warning("完全没有可用数据，保留旧数据")
         if old_data:
             with open(OUTPUT_FILE, 'w') as f:
                 f.write(old_data)
