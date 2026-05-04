@@ -2,11 +2,11 @@ name: Update CPROXYIP List
 
 on:
   schedule:
-    - cron: '0 */4 * * *' # 每4小时运行一次
-  workflow_dispatch:
+    - cron: '0 */4 * * *'  # 每4小时运行一次
+  workflow_dispatch:      # 允许手动触发
 
 permissions:
-  contents: write
+  contents: write         # 赋予 Actions 写入仓库的权限
 
 jobs:
   update-ip-list:
@@ -27,7 +27,7 @@ jobs:
         pip install requests
 
     - name: Run script
-      run: python cproxyip.py # 🛠️ 确保文件名与你仓库中的脚本一致
+      run: python cproxyip.py  # 确保文件名与仓库中一致
 
     - name: Commit and push changes
       run: |
@@ -35,12 +35,16 @@ jobs:
         git config --global user.email "actions@github.com"
         git config --global user.name "GitHub Action"
 
-        echo "Checking for changes..."
-        # 🛠️ 检查所有修改过的 .txt 文件
-        if [[ -n "$(git status --porcelain *.txt)" ]]; then
+        echo "Checking for changes in txt files..."
+        
+        # 1. 将所有生成的地区文件添加到暂存区
+        git add sg.txt jp.txt us.txt
+        
+        # 2. 检查是否有实际内容变化（避免空提交）
+        # git diff --cached --quiet 检查暂存区是否有变动，返回1表示有变动
+        if ! git diff --cached --quiet; then
           echo "Changes detected, committing..."
-          git add sg.txt jp.txt us.txt # 🛠️ 添加所有生成的地区文件
-          git commit -m "Automatic update: SG/JP/US Proxy IPs"
+          git commit -m "Auto-update: SG/JP/US Proxy IPs ($(date +'%Y-%m-%d %H:%M'))"
           git push
         else
           echo "No changes detected, skipping commit."
