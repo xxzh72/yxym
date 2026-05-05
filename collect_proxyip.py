@@ -21,13 +21,15 @@ remote_url = "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/best
 
 OUTPUT_FILE = "proxyip.txt"
 
-PORTS = [80, 443, 8080, 3128]
+PORTS = [80, 443, 8080, 8443, 2052, 2053, 2082, 2083, 2086, 2095, 2096]
+
 
 TEST_URLS = [
-    "http://httpbin.org/ip",
-    "http://ifconfig.me/ip",
-    "https://api.ipify.org"
+    "http://www.google.com/generate_204",  # 非常稳定
+    "http://www.cloudflare.com/cdn-cgi/trace", # 测 CF 代理的神器
+    "https://api.ip.sb/ip" 
 ]
+
 
 TIMEOUT = 5
 MAX_THREADS = 20
@@ -53,14 +55,18 @@ def resolve_all_ips(domain):
 def quick_check(ip, port):
     proxy = f"http://{ip}:{port}"
     try:
+        # 增加 stream=True 减少下载开销，只看连接响应
         r = requests.get(
             TEST_URLS[0],
-            proxies={"http": proxy},
-            timeout=TIMEOUT
+            proxies={"http": proxy, "https": proxy},
+            timeout=TIMEOUT,
+            verify=False, # 跳过 SSL 验证
+            stream=True
         )
-        return r.status_code == 200
+        return r.status_code < 400 # 只要不是 4xx 或 5xx 错误都算通
     except:
         return False
+
 
 
 # =========================
