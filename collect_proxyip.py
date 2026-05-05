@@ -21,7 +21,7 @@ remote_url = "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/best
 
 OUTPUT_FILE = "proxyip.txt"
 
-PORTS = [80, 443, 8080, 3128]
+PORTS = [443]
 
 TEST_URLS = [
     "http://httpbin.org/ip",
@@ -54,11 +54,12 @@ def quick_check(ip, port):
     proxy = f"http://{ip}:{port}"
     try:
         r = requests.get(
-            TEST_URLS[0],
-            proxies={"http": proxy, "https": proxy},
-            timeout=TIMEOUT
+            "http://example.com",
+            proxies={"http": proxy},
+            timeout=8,
+            allow_redirects=True
         )
-        return r.status_code == 200
+        return r.status_code < 500
     except:
         return False
 
