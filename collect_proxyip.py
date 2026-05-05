@@ -21,7 +21,7 @@ remote_url = "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/best
 
 OUTPUT_FILE = "proxyip.txt"
 
-PORTS = [443]
+PORTS = [80, 443, 8080, 3128]
 
 TEST_URLS = [
     "http://httpbin.org/ip",
@@ -54,12 +54,11 @@ def quick_check(ip, port):
     proxy = f"http://{ip}:{port}"
     try:
         r = requests.get(
-            "http://httpbin.org/ip",
-            proxies={"http": proxy},
-            timeout=8
+            TEST_URLS[0],
+            proxies={"http": proxy, "https": proxy},
+            timeout=TIMEOUT
         )
-        # 必须确认 IP 被代理
-        return ip in r.text
+        return r.status_code == 200
     except:
         return False
 
@@ -70,18 +69,15 @@ def quick_check(ip, port):
 def speed_test(ip, port):
     proxy = f"http://{ip}:{port}"
 
-    try:
-        start = time.time()
-        r = requests.get(
-            "http://example.com",
-            proxies={"http": proxy},
-            timeout=8
-        )
-        if r.status_code < 500:
-            delay = round(time.time() - start, 2)
-            return (ip, port, delay)
-    except:
-        pass
+    for url in TEST_URLS:
+        try:
+            start = time.time()
+            r = requests.get(url, proxies={"http": proxy, "https": proxy}, timeout=TIMEOUT)
+            if r.status_code == 200:
+                delay = round(time.time() - start, 2)
+                return (ip, port, delay)
+        except:
+            continue
 
     return None
 
