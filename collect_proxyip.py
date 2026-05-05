@@ -13,6 +13,8 @@ domains = [
     'proxyip.sg.fxxk.dedyn.io',
     'ProxyIP.sg.CMLiussss.net',
     'ProxyIP.jp.CMLiussss.net',
+    'ProxyIP.kr.CMLiussss.net',
+    'ProxyIP.CMLiussss.net',
 ]
 
 remote_url = "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/bestproxy.txt"
