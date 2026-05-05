@@ -55,7 +55,7 @@ def quick_check(ip, port):
     try:
         r = requests.get(
             TEST_URLS[0],
-            proxies={"http": proxy, "https": proxy},
+            proxies={"http": proxy},
             timeout=TIMEOUT
         )
         return r.status_code == 200
