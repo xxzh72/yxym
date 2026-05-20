@@ -2,7 +2,7 @@ name: Update best-domain List
 
 on:
   schedule:
-    - cron: '0 * * * *' # 真正每1小时运行一次（如果需要每3小时请改回 '0 */3 * * *'）
+    - cron: '0 */12 * * *' # 真正每12小时运行一次（如果需要每3小时请改回 '0 */3 * * *'）
   workflow_dispatch:  # 支持手动触发
 
 permissions:
