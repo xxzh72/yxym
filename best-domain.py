@@ -12,7 +12,7 @@ TARGET_URL = 'https://bestcf.pages.dev/domain/Domain-Checked.txt'
 # ============================================================
 # 极限提速配置
 # ============================================================
-SPEED_TEST_TIMEOUT = 1.5               # 激进超时：超过1.5秒直接淘汰（我们要的是极速节点）
+SPEED_TEST_TIMEOUT = 0.5               # 激进超时：超过1.5秒直接淘汰（我们要的是极速节点）
 SPEED_TEST_REPEAT  = 2                 # 每个域名测2次取平均
 MAX_WORKERS        = 100                # 并发线程数拉满到 100
 OUTPUT_FILE        = "best-domain.txt" # 输出文件
