@@ -1,4 +1,4 @@
-Name: Update best-domain List
+name: Update best-domain List
 
 on:
   schedule:
