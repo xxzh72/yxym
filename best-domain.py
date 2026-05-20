@@ -13,17 +13,17 @@ TARGET_URL = 'https://bestcf.pages.dev/domain/Domain-Checked.txt'
 # ============================================================
 # 测速配置
 # ============================================================
-MAX_WORKERS        = 100                # 并发线程数（全力拉满）
+MAX_WORKERS        = 100                # 并发线程数
 OUTPUT_FILE        = "best-domain.txt" # 输出文件
 FINAL_TOP_N        = 30                # 最终保存的域名数量
 
 # 阶段一：TCP 海选配置
 STAGE1_TIMEOUT     = 1.5               # TCP 超时时间
 STAGE1_REPEAT      = 2                 # TCP 测几次取平均
-STAGE1_TOP_N       = 100               # 海选前多少个进入复赛
+STAGE1_TOP_N       = 120               # 稍微放大海选基数，留足空间给第二阶段严格过滤
 
 # 阶段二：HTTP 精选配置
-STAGE2_TIMEOUT     = 2.0               # HTTP 超时时间
+STAGE2_TIMEOUT     = 2.5               # HTTP 超时时间（略微放宽，确保能完整下载网页文本进行扫描）
 STAGE2_REPEAT      = 2                 # HTTP 验证次数（必须全通）
 
 # 全局高并发 Session
@@ -31,7 +31,11 @@ session = requests.Session()
 adapter = HTTPAdapter(pool_connections=MAX_WORKERS, pool_maxsize=MAX_WORKERS)
 session.mount('http://', adapter)
 session.mount('https://', adapter)
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"
+}
 
 # ============================================================
 # 1. 抓取与提取域名
@@ -79,21 +83,37 @@ def measure_domain_stage1(domain):
     return domain, sum(latencies) / len(latencies)
 
 # ============================================================
-# 3. 阶段二：HTTP 可用性/防墙探测
+# 3. 阶段二：HTTP 可用性/防墙/文本内容过滤探测
 # ============================================================
 def http_latency_once(domain, timeout):
     url = f"https://{domain}"
     try:
         t0 = time.perf_counter()
+        # text=True 读取网页文本，以便扫描关键词
         resp = session.get(url, headers=HEADERS, timeout=timeout, allow_redirects=False)
         t1 = time.perf_counter()
         
-        # 核心过滤：剔除 503 Service Unavailable、502、504、429 等故障节点
-        if resp.status_code in [502, 503, 504, 429]:
+        # 1. 严格拦截状态码
+        if resp.status_code in [500, 502, 503, 504, 429]:
             return None
+            
+        # 2. 终极防御：深度扫描页面文本内容（斩断欺骗性200状态码的漏网之鱼）
+        page_content = resp.text.lower()
+        bad_keywords = [
+            "service unavailable", 
+            "bad gateway", 
+            "cloudflare error", 
+            "origin connection error",
+            "error 503",
+            "error 502"
+        ]
+        for kw in bad_keywords:
+            if kw in page_content:
+                return None # 只要命中任何一个错误关键词，直接击杀该域名
+                
         return (t1 - t0) * 1000
     except Exception:
-        return None  # 墙拦截、SSL握手失败、超时等统一归为 None
+        return None
 
 def measure_domain_stage2(domain):
     latencies = []
@@ -102,7 +122,8 @@ def measure_domain_stage2(domain):
         if ms is not None:
             latencies.append(ms)
         else:
-            return domain, None  # 一次 HTTP 异常（如503）即刻淘汰
+            return domain, None  # 任何一次请求触发了关键词或503，直接淘汰
+        time.sleep(0.05) # 微调间隔，防止高频连击被CF误杀
     return domain, sum(latencies) / len(latencies)
 
 # ============================================================
@@ -111,7 +132,7 @@ def measure_domain_stage2(domain):
 def main():
     t_start = time.time()
     print("=" * 60)
-    print("  CF 优选域名 双阶段极速精选（TCP海选 -> HTTP精选）")
+    print("  CF 优选域名 双阶段极速精选（已增强文本深度过滤拦截）")
     print("=" * 60)
     
     domain_set = fetch_domains(TARGET_URL)
@@ -119,7 +140,7 @@ def main():
         return
 
     # --------------------------------------------------------
-    # 【第一阶段】TCP 海选前 100 名
+    # 【第一阶段】TCP 海选前 120 名
     # --------------------------------------------------------
     domain_list = list(domain_set)
     total = len(domain_list)
@@ -137,33 +158,32 @@ def main():
             if done % 50 == 0 or done == total:
                 print(f"  海选进度: [{done}/{total}]...")
 
-    # 按 TCP 延迟排序，取前 STAGE1_TOP_N (100) 个
+    # 排序并取前 STAGE1_TOP_N
     stage1_results.sort(key=lambda x: x[1])
-    top_100 = stage1_results[:STAGE1_TOP_N]
-    print(f"  海选完成！已筛选出物理延迟最低的 {len(top_100)} 个域名进入复赛。\n")
+    top_candidates = stage1_results[:STAGE1_TOP_N]
+    print(f"  海选完成！已筛选出物理延迟最低的 {len(top_candidates)} 个域名进入复赛。\n")
 
-    if not top_100:
+    if not top_candidates:
         print("没有域名通过第一阶段测试，程序结束。")
         return
 
     # --------------------------------------------------------
-    # 【第二阶段】HTTP 精选（防墙 + 排除 503）
+    # 【第二阶段】HTTP 精选（防墙 + 状态码阻断 + 深度文本内容扫描）
     # --------------------------------------------------------
-    print(f"【阶段 2】开始对前 {len(top_100)} 个域名进行 HTTPS 防墙与可用性精选...")
+    print(f"【阶段 2】开始对前 {len(top_candidates)} 个域名进行全方位内容级精选...")
     stage2_results = []
     
-    # 仅对前 100 个域名开辟并发验证
     with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
-        futures = {executor.submit(measure_domain_stage2, d[0]): d[0] for d in top_100}
+        futures = {executor.submit(measure_domain_stage2, d[0]): d[0] for d in top_candidates}
         for fut in concurrent.futures.as_completed(futures):
             domain, ms = fut.result()
             if ms is not None:
                 stage2_results.append((domain, ms))
-                print(f"  [✅ 绿色可用] {domain:<30} 实际业务延迟: {ms:6.1f} ms")
+                print(f"  [✅ 纯净可用] {domain:<30} 业务延迟: {ms:6.1f} ms")
             else:
-                print(f"  [❌ 阻断/503] {domain:<30}")
+                print(f"  [❌ 阻断/含503/内容异常] {domain:<30}")
 
-    # 最终排序，取前 FINAL_TOP_N (30) 个
+    # 最终取前 30 个
     stage2_results.sort(key=lambda x: x[1])
     final_top_30 = stage2_results[:FINAL_TOP_N]
 
@@ -172,11 +192,11 @@ def main():
     # --------------------------------------------------------
     print(f"\n{'=' * 60}")
     print(f"  全部测试完成！")
-    print(f"  总耗时: {time.time() - t_start:.1f} 秒 (速度提升约 99%)")
-    print(f"  正在将最完美的 {len(final_top_30)} 个域名写入 {OUTPUT_FILE}")
+    print(f"  总耗时: {time.time() - t_start:.1f} 秒")
+    print(f"  正在将最完美的 {len(final_top_30)} 个黄金域名写入 {OUTPUT_FILE}")
     print(f"{'=' * 60}\n")
     
-    print(f"{'排名':<6} {'黄金域名':<32} {'真实业务延迟':>10}")
+    print(f"{'排名':<6} {'黄金域名':<32} {'业务延迟':>10}")
     print("-" * 55)
     for rank, (domain, ms) in enumerate(final_top_30, 1):
         print(f"#{rank:<5} {domain:<32} {ms:>8.1f} ms")
@@ -185,7 +205,7 @@ def main():
         for domain, ms in final_top_30:
             f.write(f"{domain}\n")
 
-    print(f"\n[保存] 成功！")
+    print(f"\n[保存] 成功！已彻底阻断所有 Service Unavailable 漏网之鱼。")
 
 if __name__ == "__main__":
     main()
